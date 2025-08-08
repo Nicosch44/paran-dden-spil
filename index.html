@@ -70,16 +70,22 @@
     };
 
     // ==============================
-    // Data & helpers
+    // Billeder i din /img mappe
     // ==============================
     const ITEMS = [
-      {key:'apple',    dk:'æble',     src:'img/apple.jpg'},
-      {key:'banana',   dk:'banan',    src:'img/banana.jpg'},
-      {key:'carrot',   dk:'gulerod',  src:'img/carrot.jpg'},
-      {key:'broccoli', dk:'broccoli', src:'img/broccoli.jpg'},
-      {key:'tomato',   dk:'tomat',    src:'img/tomato.jpg'}
+      {key:'apple',    dk:'æble',     src:'img/apple.png'},
+      {key:'banana',   dk:'banan',    src:'img/banana.png'},
+      {key:'broccoli', dk:'broccoli', src:'img/broccoli.png'},
+      {key:'carrot',   dk:'gulerod',  src:'img/carrot.png'}
+      // Tilføj evt. {key:'tomato', dk:'tomat', src:'img/tomato.png'}
     ];
 
+    // Hvis du uploader et foto af paranød, brug denne sti:
+    const BRAZIL_NUT_SRC = 'img/paranut.png';   // hvis filen ikke findes, bruges SVG-ikon som fallback
+
+    // ==============================
+    // DOM & state
+    // ==============================
     const $ = s => document.querySelector(s);
     const elBoard = $('#board'), elTask = $('#task'), elTime = $('#timebar'), elLives = $('#lives');
     const elStart = $('#start');
@@ -96,7 +102,7 @@
     const timeForRound = r => CONFIG.TIME_CURVE_MS[Math.min(r-1, CONFIG.TIME_CURVE_MS.length-1)];
     function setLives(n){ elLives.textContent = '❤️'.repeat(n) + '🩶'.repeat(CONFIG.MAX_LIVES-n); }
 
-    // simple “øjne+mund” SVG overlay
+    // Øjne + mund overlay
     const FACE = `
       <svg viewBox="0 0 48 48" width="72" height="72" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <circle cx="18" cy="18" r="4" fill="#111"/>
@@ -104,7 +110,7 @@
         <path d="M16 30 Q24 36 32 30" stroke="#111" stroke-width="3" fill="none" stroke-linecap="round"/>
       </svg>`;
 
-    // bonus-hjerte og paranød
+    // ❤️ + 🥜
     const SVG_HEART = `
       <svg viewBox="0 0 48 48" width="90" height="90" xmlns="http://www.w3.org/2000/svg">
         <path d="M24 40 L10 26 C4 20, 8 10, 16 12 C20 13, 22 16, 24 18 C26 16, 28 13, 32 12 C40 10, 44 20, 38 26 Z"
@@ -157,7 +163,7 @@
       const slots = slotsForRound(STATE.round);
       updateGridCols(slots);
 
-      // Vælg mål – og sørg for at målet ALTID er med
+      // Vælg mål – og sørg for, at målet ALTID er med
       const target = choose(ITEMS);
       STATE.answer = {kind: target.key};
       elTask.textContent = `Find: ${target.dk}`;
@@ -183,7 +189,8 @@
       if(Math.random() < CONFIG.BRAZIL_NUT_CHANCE){
         let j = Math.floor(Math.random()*entries.length);
         if(entries[j].bonus) j = (j+1)%entries.length;
-        entries[j] = { brazil:true, kind:'brazilnut', moving: Math.random()<0.35 };
+        // hvis du har et foto paranut.png, brug det — ellers SVG fallback
+        entries[j] = { brazil:true, kind:'brazilnut', src:BRAZIL_NUT_SRC, moving: Math.random()<0.35 };
       }
 
       // Shuffle
@@ -199,7 +206,15 @@
           btn.innerHTML = SVG_HEART;
           btn.addEventListener('click', ()=>{ if(!STATE.running) return; gainLife(); btn.style.visibility='hidden'; });
         } else if(ent.brazil){
-          btn.innerHTML = SVG_BRAZIL;
+          // prøv at bruge foto, fallback til SVG hvis det fejler
+          if(ent.src){
+            const img = document.createElement('img');
+            img.src = ent.src; img.alt = 'paranød';
+            img.onerror = ()=>{ btn.innerHTML = SVG_BRAZIL; };
+            btn.appendChild(img);
+          } else {
+            btn.innerHTML = SVG_BRAZIL;
+          }
           btn.addEventListener('click', ()=>{ if(!STATE.running) return; addBrazilBonus(); btn.style.visibility='hidden'; });
         } else {
           const img = document.createElement('img');
@@ -220,9 +235,9 @@
     }
 
     // Start/Restart
-    $('#start').addEventListener('click', ()=>{
+    elStart.addEventListener('click', ()=>{
       STATE.lives = CONFIG.START_LIVES; STATE.score=0; STATE.bonusBrazil=0; STATE.round=0; STATE.running=true;
-      setLives(STATE.lives); elTime.style.width='100%'; $('#start').style.display='none'; buildRound();
+      setLives(STATE.lives); elTime.style.width='100%'; elStart.style.display='none'; buildRound();
     });
   </script>
 </body>
