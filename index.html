@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Reaktionsspil – Frugt & Grønt</title>
   <style>
-    :root {
-      --bg:#f7f7fb; --card:#fff; --text:#111; --muted:#444; --bar:#10b981; --barbg:#e5e7eb;
-    }
+    :root { --bg:#f7f7fb; --card:#fff; --text:#111; --muted:#444; --bar:#10b981; --barbg:#e5e7eb; }
     body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; background:var(--bg); color:var(--text); }
     .wrap { max-width:760px; margin:20px auto; padding:16px; }
     .card { background:var(--card); border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.06); padding:18px; }
@@ -60,7 +58,27 @@
   </div>
 
   <script>
-    // ---------- Konfiguration ----------
+    /* ==============================
+       🔧 KONFIG – Ændr tempo her
+       ============================== */
+    const CONFIG = {
+      // Tid pr. runde (ms). Runde 1 bruger element 0, runde 2 element 1, osv.
+      // Når runden overstiger længden, bruges den sidste værdi.
+      TIME_CURVE_MS: [8000, 7500, 7000, 6500, 6000, 5600, 5400, 5200, 5000, 4800, 4600, 4400, 4200, 4000],
+
+      // Øvrige chancer/loft – kan også tweakes
+      MOVING_CHANCE: 0.30,      // chance for at en flise bevæger sig
+      BONUS_LIFE_CHANCE: 0.22,  // chance for at ❤️ dukker op
+      NO_MATCH_CHANCE: 0.18,    // chance for “Billedet er der ikke”
+      COLOR_TASK_CHANCE: 0.30,  // chance for “Find [farve] [ting]”
+      BRAZIL_NUT_CHANCE: 0.05,  // chance for paranød (🥜), giver +5 point
+      MAX_LIVES: 3,
+      START_LIVES: 2
+    };
+
+    // ==============================
+    // Data & helpers
+    // ==============================
     const COLORS_DK = ['rød','grøn','gul','orange'];
     const ITEMS = [
       {key:'apple',    dk:'æble',     base:'rød'},
@@ -70,32 +88,25 @@
       {key:'tomato',   dk:'tomat',    base:'rød'}
     ];
 
-    const STATE = {
-      lives: 2, maxLives: 3,
-      score: 0, bonusBrazil: 0,
-      round: 0,
-      timeMs: 3000, minTime: 1100, stepTime: 120,
-      movingChance: 0.35,
-      bonusLifeChance: 0.22,
-      noMatchChance: 0.18,
-      colorTaskChance: 0.30,
-      brazilNutChance: 0.05, // meget sjældent
-      running: false,
-      answer: null, // null = no-match-runde, ellers {kind,color?}
-      timerId: null, tickId: null
-    };
-
-    // ---------- Hjælpere ----------
-    const $ = sel => document.querySelector(sel);
+    const $ = s => document.querySelector(s);
     const elBoard = $('#board'), elTask = $('#task'), elTime = $('#timebar'), elLives = $('#lives');
     const elStart = $('#start'), elSkip = $('#skip');
 
+    const STATE = {
+      lives: CONFIG.START_LIVES, maxLives: CONFIG.MAX_LIVES,
+      score: 0, bonusBrazil: 0,
+      round: 0,
+      running: false,
+      answer: null,           // null = no-match, ellers {kind,color?}
+      timerId: null, tickId: null
+    };
+
     const choose = arr => arr[Math.floor(Math.random()*arr.length)];
+    const timeForRound = r => CONFIG.TIME_CURVE_MS[Math.min(r-1, CONFIG.TIME_CURVE_MS.length-1)];
 
     function setLives(n){
-      elLives.textContent = '❤️'.repeat(n) + '🩶'.repeat(STATE.maxLives-n);
+      elLives.textContent = '❤️'.repeat(n) + '🩶'.repeat(CONFIG.MAX_LIVES-n);
     }
-
     function colorFill(dk){
       switch(dk){
         case 'rød': return '#ef4444';
@@ -106,7 +117,9 @@
       }
     }
 
-    // ---------- SVG "grafik" (med øjne, mund, evt. ben/hår) ----------
+    // ==============================
+    // SVG “grafik”
+    // ==============================
     function svgFruit(kind, colorName){
       const fill = colorFill(colorName || 'rød');
       let eye = `<circle cx="18" cy="18" r="3" fill="#111"/><circle cx="30" cy="18" r="3" fill="#111"/>`;
@@ -126,10 +139,9 @@
       } else if(kind==='heart'){ // bonusliv
         shape = `<path d="M24 40 L10 26 C4 20, 8 10, 16 12 C20 13, 22 16, 24 18 C26 16, 28 13, 32 12 C40 10, 44 20, 38 26 Z" fill="#ef4444"/>`;
         eye = mouth = legs = hair = '';
-      } else if(kind==='brazilnut'){ // paranød (bonus +5)
+      } else if(kind==='brazilnut'){ // paranød
         shape = `<path d="M10 30 C10 16, 22 8, 34 14 C42 18, 42 30, 32 36 C24 40, 14 38, 10 30 Z" fill="#8b5e3c"/>
                  <path d="M14 26 C18 18, 30 16, 34 22 C28 18, 20 20, 14 26 Z" fill="#a87954"/>`;
-        // lille ansigt for sjov
         eye = `<circle cx="20" cy="24" r="2.5" fill="#111"/><circle cx="28" cy="24" r="2.5" fill="#111"/>`;
         mouth = `<path d="M20 28 Q24 31 28 28" stroke="#111" stroke-width="1.8" fill="none"/>`;
         legs = hair = '';
@@ -137,7 +149,9 @@
       return `<svg viewBox="0 0 48 48" width="90" height="90" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${shape}${eye}${mouth}${legs}${hair}</svg>`;
     }
 
-    // ---------- Bræt ----------
+    // ==============================
+    // Board & runder
+    // ==============================
     function slotsForRound(r){
       if(r<3) return 3;
       if(r<6) return 4;
@@ -146,15 +160,15 @@
       return 9;
     }
     function updateGridCols(n){
-      if(n<=4) elBoard.style.gridTemplateColumns = 'repeat(2, minmax(90px,1fr))';
-      else elBoard.style.gridTemplateColumns = 'repeat(3, minmax(90px,1fr))';
+      elBoard.style.gridTemplateColumns = (n<=4)
+        ? 'repeat(2, minmax(90px,1fr))'
+        : 'repeat(3, minmax(90px,1fr))';
     }
 
     function clearTimers(){
       if(STATE.timerId){ clearTimeout(STATE.timerId); STATE.timerId=null; }
       if(STATE.tickId){ clearInterval(STATE.tickId); STATE.tickId=null; }
     }
-
     function endGame(reason){
       STATE.running=false;
       clearTimers();
@@ -176,7 +190,7 @@
 
     function startRoundTimer(){
       clearTimers();
-      const total = STATE.timeMs;
+      const total = timeForRound(STATE.round);
       const start = Date.now();
       elTime.style.width = '100%';
 
@@ -188,34 +202,28 @@
 
       STATE.timerId = setTimeout(()=> loseLife('timeout'), total);
     }
-
     function loseLife(){
       clearTimers();
       STATE.lives--;
       setLives(STATE.lives);
       if(STATE.lives<=0){ endGame('nolives'); return; }
-      buildRound(); // prøv igen med ny runde
-    }
-
-    function correct(){
-      clearTimers();
-      STATE.score += 1;             // 1 point per runde
-      STATE.timeMs = Math.max(STATE.minTime, STATE.timeMs - STATE.stepTime); // sværere
       buildRound();
     }
-
+    function correct(){
+      clearTimers();
+      STATE.score += 1; // 1 point pr. korrekt runde
+      buildRound();
+    }
     function gainLife(){
-      if(STATE.lives < STATE.maxLives){
+      if(STATE.lives < CONFIG.MAX_LIVES){
         STATE.lives += 1; setLives(STATE.lives);
       }
     }
-
     function addBrazilBonus(){
-      STATE.score += 5;  // bonus
+      STATE.score += 5;  // +5 point
       STATE.bonusBrazil += 1;
     }
 
-    // ---------- Rundeopbygning ----------
     function buildRound(){
       STATE.round++;
       elBoard.innerHTML = '';
@@ -223,15 +231,15 @@
       updateGridCols(slots);
 
       // Vælg rundetype
-      const isNoMatch = Math.random() < STATE.noMatchChance;
-      const isColorTask = !isNoMatch && (Math.random() < STATE.colorTaskChance);
+      const isNoMatch = Math.random() < CONFIG.NO_MATCH_CHANCE;
+      const isColorTask = !isNoMatch && (Math.random() < CONFIG.COLOR_TASK_CHANCE);
 
       const targetItem = choose(ITEMS);
       const targetColor = isColorTask ? choose(COLORS_DK) : null;
 
       if(isNoMatch){
         elTask.textContent = 'Find: (Ingen – brug knappen “Billedet er der ikke”)';
-        STATE.answer = null; // ingen korrekt flise i denne runde
+        STATE.answer = null;
       } else if(isColorTask){
         elTask.textContent = `Find: ${targetColor} ${targetItem.dk}`;
         STATE.answer = {kind: targetItem.key, color: targetColor};
@@ -240,42 +248,36 @@
         STATE.answer = {kind: targetItem.key, color: null};
       }
 
-      // Lav entries
+      // entries
       const entries = [];
 
-      // korrekt svar (med farve hvis relevant)
       if(!isNoMatch){
         entries.push({
           kind: targetItem.key,
           color: isColorTask ? targetColor : targetItem.base,
-          moving: Math.random() < STATE.movingChance
+          moving: Math.random() < CONFIG.MOVING_CHANCE
         });
       }
-
-      // øvrige tilfældige
       while(entries.length < slots){
         const it = choose(ITEMS);
         const col = choose(COLORS_DK);
-        // undgå identisk kopi af svaret
         if(STATE.answer && it.key===STATE.answer.kind && (!STATE.answer.color || col===STATE.answer.color)) continue;
         entries.push({
           kind: it.key,
           color: col,
-          moving: Math.random() < STATE.movingChance
+          moving: Math.random() < CONFIG.MOVING_CHANCE
         });
       }
 
-      // bonusliv? (erstatter en tilfældig entry)
-      if(Math.random() < STATE.bonusLifeChance){
-        const idx = Math.floor(Math.random()*entries.length);
+      // bonusliv
+      if(Math.random() < CONFIG.BONUS_LIFE_CHANCE){
+        let idx = Math.floor(Math.random()*entries.length);
         entries[idx] = { kind:'heart', bonus:true, moving: Math.random()<0.5 };
       }
-
-      // paranød? (erstatter en anden tilfældig entry; er ALDRIG mål)
-      if(Math.random() < STATE.brazilNutChance){
-        // find en plads der ikke allerede er bonus
+      // paranød
+      if(Math.random() < CONFIG.BRAZIL_NUT_CHANCE){
         let idx = Math.floor(Math.random()*entries.length);
-        if(entries[idx].bonus) idx = (idx+1) % entries.length;
+        if(entries[idx].bonus) idx = (idx+1)%entries.length;
         entries[idx] = { kind:'brazilnut', brazil:true, moving: Math.random()<0.35 };
       }
 
@@ -307,22 +309,15 @@
     function onTileClick(e){
       if(!STATE.running) return;
       const btn = e.currentTarget;
-      if(btn.dataset.bonus==='1'){        // ❤️ bonusliv
-        gainLife();
-        btn.style.visibility='hidden';
-        return;                           // stadig svar opgaven bagefter
+
+      if(btn.dataset.bonus==='1'){        // ❤️
+        gainLife(); btn.style.visibility='hidden'; return;
       }
-      if(btn.dataset.brazil==='1'){       // 🥜 paranød → +5 point
-        addBrazilBonus();
-        btn.style.visibility='hidden';
-        return;
+      if(btn.dataset.brazil==='1'){       // 🥜
+        addBrazilBonus(); btn.style.visibility='hidden'; return;
       }
 
-      // almindelig klik → vurder mod opgaven
-      if(STATE.answer===null){
-        // denne runde skal man trykke på "Billedet er der ikke"
-        loseLife('wrong'); return;
-      }
+      if(STATE.answer===null){ loseLife('wrong'); return; }
       const needKind = STATE.answer.kind;
       const needColor = STATE.answer.color; // kan være null
       const k = btn.dataset.kind;
@@ -332,16 +327,18 @@
       if(ok) correct(); else loseLife('wrong');
     }
 
-    // ---------- Public knapper ----------
+    // ==============================
+    // Knapper
+    // ==============================
     elStart.addEventListener('click', ()=>{
-      STATE.lives = 2; STATE.score = 0; STATE.bonusBrazil = 0;
-      STATE.round = 0; STATE.timeMs = 3000; STATE.running = true;
+      STATE.lives = CONFIG.START_LIVES;
+      STATE.score = 0; STATE.bonusBrazil = 0;
+      STATE.round = 0; STATE.running = true;
       setLives(STATE.lives);
       elTime.style.width = '100%';
       elStart.style.display = 'none';
       buildRound();
     });
-
     elSkip.addEventListener('click', ()=>{
       if(!STATE.running) return;
       if(STATE.answer===null) correct(); else loseLife('wrong');
