@@ -15,8 +15,10 @@
     .bar { flex:1 1 280px; height:10px; background:var(--barbg); border-radius:6px; overflow:hidden }
     .bar>div { height:100%; width:100%; background:var(--bar); transition:width .08s linear }
     #task { text-align:center; font-weight:700; font-size:20px; margin:6px 0 12px }
-    #board { display:grid; grid-template-columns:repeat(3, minmax(90px,1fr)); gap:10px; justify-items:center; align-items:center; min-height:260px; }
-    .tile { width:120px; height:120px; max-width:28vw; max-height:28vw; border:1px solid #ddd; border-radius:12px; background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; overflow:hidden }
+    #board { display:grid; grid-template-columns:repeat(3, minmax(90px,1fr)); gap:12px; justify-items:center; align-items:center; min-height:260px; }
+    .tile { width:140px; height:140px; max-width:30vw; max-height:30vw; border:1px solid #ddd; border-radius:14px; background:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; overflow:hidden }
+    .tile img { width:100%; height:100%; object-fit:cover; display:block; }
+    .face { position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; }
     .moving { animation:float 2.6s ease-in-out infinite }
     @keyframes float {
       0% {transform:translate(0,0) rotate(0)}
@@ -26,10 +28,8 @@
       100%{transform:translate(0,0) rotate(0)}
     }
     .cta { text-align:center; margin-top:10px }
-    button { padding:10px 16px; border-radius:10px; border:1px solid #111; background:#111; color:#fff; cursor:pointer }
-    #skip { border:1px solid #ddd; background:#fff; color:#111 }
-    .muted { color:var(--muted); font-size:.95rem }
-    .center { text-align:center }
+    button.main { padding:10px 16px; border-radius:10px; border:1px solid #111; background:#111; color:#fff; cursor:pointer }
+    .muted { color:var(--muted); font-size:.95rem; text-align:center; }
   </style>
 </head>
 <body>
@@ -40,7 +40,6 @@
       <div class="ui">
         <div id="lives">❤️❤️</div>
         <div class="bar"><div id="timebar"></div></div>
-        <button id="skip" title="Brug hvis det rigtige billede slet ikke findes">Billedet er der ikke</button>
       </div>
 
       <div id="task">Klik “Start” for at spille</div>
@@ -48,11 +47,11 @@
       <div id="board" aria-live="polite"></div>
 
       <div class="cta">
-        <button id="start">Start</button>
+        <button id="start" class="main">Start</button>
       </div>
 
-      <p class="muted center" style="margin-top:14px">
-        Tip: Bonusliv (❤️) kan altid samles. Paranød (🥜) giver +5 point, men er aldrig selve opgaven.
+      <p class="muted" style="margin-top:14px">
+        Tip: ❤️ kan altid samles (max 3 liv). 🥜 (paranød) giver +5 point og er aldrig målet.
       </p>
     </div>
   </div>
@@ -62,15 +61,9 @@
        🔧 KONFIG – Ændr tempo her
        ============================== */
     const CONFIG = {
-      // Tid pr. runde (ms). Runde 1 bruger element 0, runde 2 element 1, osv.
-      // Når runden overstiger længden, bruges den sidste værdi.
-      TIME_CURVE_MS: [8000, 7500, 7000, 6500, 6000, 5600, 5400, 5200, 5000, 4800, 4600, 4400, 4200, 4000],
-
-      // Øvrige chancer/loft – kan også tweakes
+      TIME_CURVE_MS: [9000, 8500, 8000, 7600, 7200, 6800, 6500, 6200, 6000, 5800, 5600, 5400, 5200, 5000],
       MOVING_CHANCE: 0.30,      // chance for at en flise bevæger sig
       BONUS_LIFE_CHANCE: 0.22,  // chance for at ❤️ dukker op
-      NO_MATCH_CHANCE: 0.18,    // chance for “Billedet er der ikke”
-      COLOR_TASK_CHANCE: 0.30,  // chance for “Find [farve] [ting]”
       BRAZIL_NUT_CHANCE: 0.05,  // chance for paranød (🥜), giver +5 point
       MAX_LIVES: 3,
       START_LIVES: 2
@@ -79,110 +72,59 @@
     // ==============================
     // Data & helpers
     // ==============================
-    const COLORS_DK = ['rød','grøn','gul','orange'];
     const ITEMS = [
-      {key:'apple',    dk:'æble',     base:'rød'},
-      {key:'banana',   dk:'banan',    base:'gul'},
-      {key:'carrot',   dk:'gulerod',  base:'orange'},
-      {key:'broccoli', dk:'broccoli', base:'grøn'},
-      {key:'tomato',   dk:'tomat',    base:'rød'}
+      {key:'apple',    dk:'æble',     src:'img/apple.jpg'},
+      {key:'banana',   dk:'banan',    src:'img/banana.jpg'},
+      {key:'carrot',   dk:'gulerod',  src:'img/carrot.jpg'},
+      {key:'broccoli', dk:'broccoli', src:'img/broccoli.jpg'},
+      {key:'tomato',   dk:'tomat',    src:'img/tomato.jpg'}
     ];
 
     const $ = s => document.querySelector(s);
     const elBoard = $('#board'), elTask = $('#task'), elTime = $('#timebar'), elLives = $('#lives');
-    const elStart = $('#start'), elSkip = $('#skip');
+    const elStart = $('#start');
 
     const STATE = {
       lives: CONFIG.START_LIVES, maxLives: CONFIG.MAX_LIVES,
       score: 0, bonusBrazil: 0,
-      round: 0,
-      running: false,
-      answer: null,           // null = no-match, ellers {kind,color?}
+      round: 0, running: false,
+      answer: null, // {kind}
       timerId: null, tickId: null
     };
 
     const choose = arr => arr[Math.floor(Math.random()*arr.length)];
     const timeForRound = r => CONFIG.TIME_CURVE_MS[Math.min(r-1, CONFIG.TIME_CURVE_MS.length-1)];
+    function setLives(n){ elLives.textContent = '❤️'.repeat(n) + '🩶'.repeat(CONFIG.MAX_LIVES-n); }
 
-    function setLives(n){
-      elLives.textContent = '❤️'.repeat(n) + '🩶'.repeat(CONFIG.MAX_LIVES-n);
-    }
-    function colorFill(dk){
-      switch(dk){
-        case 'rød': return '#ef4444';
-        case 'grøn': return '#10b981';
-        case 'gul': return '#f59e0b';
-        case 'orange': return '#fb923c';
-        default: return '#999';
-      }
-    }
+    // simple “øjne+mund” SVG overlay
+    const FACE = `
+      <svg viewBox="0 0 48 48" width="72" height="72" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="18" cy="18" r="4" fill="#111"/>
+        <circle cx="30" cy="18" r="4" fill="#111"/>
+        <path d="M16 30 Q24 36 32 30" stroke="#111" stroke-width="3" fill="none" stroke-linecap="round"/>
+      </svg>`;
 
-    // ==============================
-    // SVG “grafik”
-    // ==============================
-    function svgFruit(kind, colorName){
-      const fill = colorFill(colorName || 'rød');
-      let eye = `<circle cx="18" cy="18" r="3" fill="#111"/><circle cx="30" cy="18" r="3" fill="#111"/>`;
-      let mouth = `<path d="M16 28 Q24 34 32 28" stroke="#111" stroke-width="2" fill="none"/>`;
-      let legs = `<rect x="18" y="40" width="3" height="6" fill="#333"/><rect x="29" y="40" width="3" height="6" fill="#333"/>`;
-      let hair = `<rect x="24" y="2" width="2" height="6" fill="#333"/>`;
-      let shape = '';
+    // bonus-hjerte og paranød
+    const SVG_HEART = `
+      <svg viewBox="0 0 48 48" width="90" height="90" xmlns="http://www.w3.org/2000/svg">
+        <path d="M24 40 L10 26 C4 20, 8 10, 16 12 C20 13, 22 16, 24 18 C26 16, 28 13, 32 12 C40 10, 44 20, 38 26 Z"
+              fill="#ef4444"/>
+      </svg>`;
+    const SVG_BRAZIL = `
+      <svg viewBox="0 0 48 48" width="90" height="90" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 30 C10 16, 22 8, 34 14 C42 18, 42 30, 32 36 C24 40, 14 38, 10 30 Z" fill="#8b5e3c"/>
+        <path d="M14 26 C18 18, 30 16, 34 22 C28 18, 20 20, 14 26 Z" fill="#a87954"/>
+        <circle cx="20" cy="24" r="3" fill="#111"/><circle cx="28" cy="24" r="3" fill="#111"/>
+        <path d="M20 28 Q24 31 28 28" stroke="#111" stroke-width="2" fill="none"/>
+      </svg>`;
 
-      if(kind==='apple' || kind==='tomato'){
-        shape = `<circle cx="24" cy="24" r="18" fill="${fill}"/>`;
-      } else if(kind==='banana'){
-        shape = `<path d="M8 26 C 12 10, 36 10, 40 26 C 34 22, 16 22, 8 26 Z" fill="${fill}"/>`;
-      } else if(kind==='carrot'){
-        shape = `<polygon points="24,6 10,42 38,42" fill="${fill}"/>`;
-      } else if(kind==='broccoli'){
-        shape = `<circle cx="18" cy="16" r="10" fill="${fill}"/><circle cx="30" cy="18" r="10" fill="${fill}"/><circle cx="24" cy="22" r="10" fill="${fill}"/>`;
-      } else if(kind==='heart'){ // bonusliv
-        shape = `<path d="M24 40 L10 26 C4 20, 8 10, 16 12 C20 13, 22 16, 24 18 C26 16, 28 13, 32 12 C40 10, 44 20, 38 26 Z" fill="#ef4444"/>`;
-        eye = mouth = legs = hair = '';
-      } else if(kind==='brazilnut'){ // paranød
-        shape = `<path d="M10 30 C10 16, 22 8, 34 14 C42 18, 42 30, 32 36 C24 40, 14 38, 10 30 Z" fill="#8b5e3c"/>
-                 <path d="M14 26 C18 18, 30 16, 34 22 C28 18, 20 20, 14 26 Z" fill="#a87954"/>`;
-        eye = `<circle cx="20" cy="24" r="2.5" fill="#111"/><circle cx="28" cy="24" r="2.5" fill="#111"/>`;
-        mouth = `<path d="M20 28 Q24 31 28 28" stroke="#111" stroke-width="1.8" fill="none"/>`;
-        legs = hair = '';
-      }
-      return `<svg viewBox="0 0 48 48" width="90" height="90" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${shape}${eye}${mouth}${legs}${hair}</svg>`;
-    }
-
-    // ==============================
-    // Board & runder
-    // ==============================
-    function slotsForRound(r){
-      if(r<3) return 3;
-      if(r<6) return 4;
-      if(r<9) return 6;
-      if(r<12) return 8;
-      return 9;
-    }
-    function updateGridCols(n){
-      elBoard.style.gridTemplateColumns = (n<=4)
-        ? 'repeat(2, minmax(90px,1fr))'
-        : 'repeat(3, minmax(90px,1fr))';
-    }
-
-    function clearTimers(){
-      if(STATE.timerId){ clearTimeout(STATE.timerId); STATE.timerId=null; }
-      if(STATE.tickId){ clearInterval(STATE.tickId); STATE.tickId=null; }
-    }
+    function clearTimers(){ if(STATE.timerId){clearTimeout(STATE.timerId);STATE.timerId=null;} if(STATE.tickId){clearInterval(STATE.tickId);STATE.tickId=null;} }
     function endGame(reason){
-      STATE.running=false;
-      clearTimers();
-      elBoard.innerHTML='';
-      const rank = (s=>{
-        if(s<=4) return 'Sneglerefleks';
-        if(s<=9) return 'Opvarmet';
-        if(s<=14) return 'Reaktionsmester';
-        if(s<=19) return 'Lynhurtig';
-        return 'Superhjernen';
-      })(STATE.score);
+      STATE.running=false; clearTimers(); elBoard.innerHTML='';
+      const rank = (s=>{ if(s<=4)return'Sneglerefleks'; if(s<=9)return'Opvarmet'; if(s<=14)return'Reaktionsmester'; if(s<=19)return'Lynhurtig'; return'Superhjernen'; })(STATE.score);
       let msg = `Spil slut!<br>Point: <b>${STATE.score}</b> (Paranød bonus: +${STATE.bonusBrazil*5})<br>Rang: <b>${rank}</b>`;
-      if(reason==='timeout') msg = '⏳ Tiden løb ud!<br>' + msg;
-      if(reason==='nolives') msg = '💔 Du løb tør for liv!<br>' + msg;
+      if(reason==='timeout') msg = '⏳ Tiden løb ud!<br>'+msg;
+      if(reason==='nolives') msg = '💔 Du løb tør for liv!<br>'+msg;
       elTask.innerHTML = msg;
       elStart.textContent = 'Spil igen';
       elStart.style.display = 'inline-block';
@@ -196,152 +138,91 @@
 
       STATE.tickId = setInterval(()=>{
         const left = Math.max(0, total - (Date.now()-start));
-        const pct = Math.max(0, Math.floor((left/total)*100));
-        elTime.style.width = pct + '%';
+        elTime.style.width = Math.max(0, Math.floor((left/total)*100)) + '%';
       }, 80);
 
       STATE.timerId = setTimeout(()=> loseLife('timeout'), total);
     }
-    function loseLife(){
-      clearTimers();
-      STATE.lives--;
-      setLives(STATE.lives);
-      if(STATE.lives<=0){ endGame('nolives'); return; }
-      buildRound();
-    }
-    function correct(){
-      clearTimers();
-      STATE.score += 1; // 1 point pr. korrekt runde
-      buildRound();
-    }
-    function gainLife(){
-      if(STATE.lives < CONFIG.MAX_LIVES){
-        STATE.lives += 1; setLives(STATE.lives);
-      }
-    }
-    function addBrazilBonus(){
-      STATE.score += 5;  // +5 point
-      STATE.bonusBrazil += 1;
-    }
+
+    function loseLife(){ clearTimers(); STATE.lives--; setLives(STATE.lives); if(STATE.lives<=0){ endGame('nolives'); return; } buildRound(); }
+    function correct(){ clearTimers(); STATE.score += 1; buildRound(); }
+    function gainLife(){ if(STATE.lives<CONFIG.MAX_LIVES){ STATE.lives++; setLives(STATE.lives); } }
+    function addBrazilBonus(){ STATE.score += 5; STATE.bonusBrazil++; }
+
+    function slotsForRound(r){ if(r<3) return 3; if(r<6) return 4; if(r<9) return 6; if(r<12) return 8; return 9; }
+    function updateGridCols(n){ elBoard.style.gridTemplateColumns = (n<=4)?'repeat(2, minmax(90px,1fr))':'repeat(3, minmax(90px,1fr))'; }
 
     function buildRound(){
-      STATE.round++;
-      elBoard.innerHTML = '';
+      STATE.round++; elBoard.innerHTML='';
       const slots = slotsForRound(STATE.round);
       updateGridCols(slots);
 
-      // Vælg rundetype
-      const isNoMatch = Math.random() < CONFIG.NO_MATCH_CHANCE;
-      const isColorTask = !isNoMatch && (Math.random() < CONFIG.COLOR_TASK_CHANCE);
+      // Vælg mål – og sørg for at målet ALTID er med
+      const target = choose(ITEMS);
+      STATE.answer = {kind: target.key};
+      elTask.textContent = `Find: ${target.dk}`;
 
-      const targetItem = choose(ITEMS);
-      const targetColor = isColorTask ? choose(COLORS_DK) : null;
-
-      if(isNoMatch){
-        elTask.textContent = 'Find: (Ingen – brug knappen “Billedet er der ikke”)';
-        STATE.answer = null;
-      } else if(isColorTask){
-        elTask.textContent = `Find: ${targetColor} ${targetItem.dk}`;
-        STATE.answer = {kind: targetItem.key, color: targetColor};
-      } else {
-        elTask.textContent = `Find: ${targetItem.dk}`;
-        STATE.answer = {kind: targetItem.key, color: null};
-      }
-
-      // entries
       const entries = [];
 
-      if(!isNoMatch){
-        entries.push({
-          kind: targetItem.key,
-          color: isColorTask ? targetColor : targetItem.base,
-          moving: Math.random() < CONFIG.MOVING_CHANCE
-        });
-      }
+      // Tilføj korrekt billede først
+      entries.push({ kind: target.key, src: target.src, moving: Math.random()<CONFIG.MOVING_CHANCE });
+
+      // Fyld op med andre billeder
       while(entries.length < slots){
         const it = choose(ITEMS);
-        const col = choose(COLORS_DK);
-        if(STATE.answer && it.key===STATE.answer.kind && (!STATE.answer.color || col===STATE.answer.color)) continue;
-        entries.push({
-          kind: it.key,
-          color: col,
-          moving: Math.random() < CONFIG.MOVING_CHANCE
-        });
+        if(it.key === target.key) continue; // undgå flere identiske mål
+        entries.push({ kind: it.key, src: it.src, moving: Math.random()<CONFIG.MOVING_CHANCE });
       }
 
-      // bonusliv
+      // Bonusliv?
       if(Math.random() < CONFIG.BONUS_LIFE_CHANCE){
-        let idx = Math.floor(Math.random()*entries.length);
-        entries[idx] = { kind:'heart', bonus:true, moving: Math.random()<0.5 };
+        const i = Math.floor(Math.random()*entries.length);
+        entries[i] = { bonus:true, kind:'heart', moving: Math.random()<0.5 };
       }
-      // paranød
+      // Paranød?
       if(Math.random() < CONFIG.BRAZIL_NUT_CHANCE){
-        let idx = Math.floor(Math.random()*entries.length);
-        if(entries[idx].bonus) idx = (idx+1)%entries.length;
-        entries[idx] = { kind:'brazilnut', brazil:true, moving: Math.random()<0.35 };
+        let j = Math.floor(Math.random()*entries.length);
+        if(entries[j].bonus) j = (j+1)%entries.length;
+        entries[j] = { brazil:true, kind:'brazilnut', moving: Math.random()<0.35 };
       }
 
-      // shuffle
-      for(let i=entries.length-1;i>0;i--){
-        const j = Math.floor(Math.random()*(i+1));
-        [entries[i], entries[j]] = [entries[j], entries[i]];
-      }
+      // Shuffle
+      for(let i=entries.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [entries[i],entries[j]]=[entries[j],entries[i]]; }
 
-      // render
+      // Render
       for(const ent of entries){
         const btn = document.createElement('button');
-        btn.type = 'button';
+        btn.type='button';
         btn.className = 'tile' + (ent.moving ? ' moving' : '');
-        btn.dataset.kind = ent.kind;
-        if(ent.color) btn.dataset.color = ent.color;
-        if(ent.bonus) btn.dataset.bonus = '1';
-        if(ent.brazil) btn.dataset.brazil = '1';
-        btn.innerHTML = ent.bonus ? svgFruit('heart')
-                   : ent.brazil ? svgFruit('brazilnut')
-                   : svgFruit(ent.kind, ent.color);
-        btn.addEventListener('click', onTileClick);
+
+        if(ent.bonus){
+          btn.innerHTML = SVG_HEART;
+          btn.addEventListener('click', ()=>{ if(!STATE.running) return; gainLife(); btn.style.visibility='hidden'; });
+        } else if(ent.brazil){
+          btn.innerHTML = SVG_BRAZIL;
+          btn.addEventListener('click', ()=>{ if(!STATE.running) return; addBrazilBonus(); btn.style.visibility='hidden'; });
+        } else {
+          const img = document.createElement('img');
+          img.src = ent.src; img.alt = ent.kind;
+          const face = document.createElement('div'); face.className='face'; face.innerHTML = FACE;
+          btn.dataset.kind = ent.kind;
+          btn.appendChild(img); btn.appendChild(face);
+          btn.addEventListener('click', ()=>{
+            if(!STATE.running) return;
+            const ok = (btn.dataset.kind === STATE.answer.kind);
+            ok ? correct() : loseLife('wrong');
+          });
+        }
         elBoard.appendChild(btn);
       }
 
       startRoundTimer();
     }
 
-    function onTileClick(e){
-      if(!STATE.running) return;
-      const btn = e.currentTarget;
-
-      if(btn.dataset.bonus==='1'){        // ❤️
-        gainLife(); btn.style.visibility='hidden'; return;
-      }
-      if(btn.dataset.brazil==='1'){       // 🥜
-        addBrazilBonus(); btn.style.visibility='hidden'; return;
-      }
-
-      if(STATE.answer===null){ loseLife('wrong'); return; }
-      const needKind = STATE.answer.kind;
-      const needColor = STATE.answer.color; // kan være null
-      const k = btn.dataset.kind;
-      const c = btn.dataset.color || null;
-
-      const ok = (k===needKind) && (needColor ? (c===needColor) : true);
-      if(ok) correct(); else loseLife('wrong');
-    }
-
-    // ==============================
-    // Knapper
-    // ==============================
-    elStart.addEventListener('click', ()=>{
-      STATE.lives = CONFIG.START_LIVES;
-      STATE.score = 0; STATE.bonusBrazil = 0;
-      STATE.round = 0; STATE.running = true;
-      setLives(STATE.lives);
-      elTime.style.width = '100%';
-      elStart.style.display = 'none';
-      buildRound();
-    });
-    elSkip.addEventListener('click', ()=>{
-      if(!STATE.running) return;
-      if(STATE.answer===null) correct(); else loseLife('wrong');
+    // Start/Restart
+    $('#start').addEventListener('click', ()=>{
+      STATE.lives = CONFIG.START_LIVES; STATE.score=0; STATE.bonusBrazil=0; STATE.round=0; STATE.running=true;
+      setLives(STATE.lives); elTime.style.width='100%'; $('#start').style.display='none'; buildRound();
     });
   </script>
 </body>
